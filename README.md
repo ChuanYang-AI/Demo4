@@ -95,9 +95,8 @@ python taxi_vertex_pipeline.py
 
 ### 如何获取/创建 GCS bucket？
 
-1. 推荐命名：`cy-aispeci-demo-bucket-zp`（需全局唯一）
-2. 控制台网页创建：[Google Cloud Console](https://console.cloud.google.com/storage/browser)
-3. 或命令行创建：
+1. 控制台网页创建：[Google Cloud Console](https://console.cloud.google.com/storage/browser)
+2. 或命令行创建：
 
 ```bash
 export PROJECT_ID=cy-aispeci-demo
