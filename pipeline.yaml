@@ -1,0 +1,1015 @@
+# PIPELINE DEFINITION
+# Name: vertex-ai-chicago-taxi-e2e-pipeline
+# Description: Chicago Taxi E2E pipeline: Dataflow + BigQuery + Vertex AI (sklearn) 全自动化
+# Inputs:
+#    bq_output_table: str
+#    dataflow_clean_local_path: str
+#    dataflow_clean_remote_path: str
+#    endpoint_display_name: str [Default: 'chicago-taxi-endpoint']
+#    gcs_model_dir: str
+#    gcs_model_path: str
+#    gcs_script_dir: str
+#    machine_type: str [Default: 'n1-standard-4']
+#    max_replica_count: int [Default: 3.0]
+#    min_replica_count: int [Default: 1.0]
+#    model_display_name: str [Default: 'chicago-taxi-lr-model']
+#    project: str
+#    region: str
+#    requirements_file_path: str
+#    temp_location: str
+components:
+  comp-dataflow-python:
+    executorLabel: exec-dataflow-python
+    inputDefinitions:
+      parameters:
+        args:
+          defaultValue: []
+          description: The list of args to pass to the Python file. Can include additional
+            parameters for the Dataflow Runner.
+          isOptional: true
+          parameterType: LIST
+        location:
+          defaultValue: us-central1
+          description: Location of the Dataflow job. If not set, defaults to `'us-central1'`.
+          isOptional: true
+          parameterType: STRING
+        project:
+          defaultValue: '{{$.pipeline_google_cloud_project_id}}'
+          description: Project to create the Dataflow job. Defaults to the project
+            in which the PipelineJob is run.
+          isOptional: true
+          parameterType: STRING
+        python_module_path:
+          description: The GCS path to the Python file to run.
+          parameterType: STRING
+        requirements_file_path:
+          defaultValue: ''
+          description: The GCS path to the pip requirements file.
+          isOptional: true
+          parameterType: STRING
+        temp_location:
+          description: A GCS path for Dataflow to stage temporary job files created
+            during the execution of the pipeline.
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        gcp_resources:
+          description: Serialized gcp_resources proto tracking the Dataflow job. For
+            more details, see https://github.com/kubeflow/pipelines/blob/master/components/google-cloud/google_cloud_pipeline_components/proto/README.md.
+          parameterType: STRING
+  comp-download-and-predict:
+    executorLabel: exec-download-and-predict
+    inputDefinitions:
+      parameters:
+        bq_table:
+          parameterType: STRING
+        gcs_model_path:
+          parameterType: STRING
+        project:
+          parameterType: STRING
+        region:
+          parameterType: STRING
+  comp-endpoint-create:
+    executorLabel: exec-endpoint-create
+    inputDefinitions:
+      parameters:
+        description:
+          defaultValue: ''
+          description: The description of the Endpoint.
+          isOptional: true
+          parameterType: STRING
+        display_name:
+          description: The user-defined name of the Endpoint. The name can be up to
+            128 characters long and can be consist of any UTF-8 characters.
+          parameterType: STRING
+        encryption_spec_key_name:
+          defaultValue: ''
+          description: 'Customer-managed encryption key spec for an Endpoint. If set,
+            this Endpoint and all of this Endoint''s sub-resources will be secured
+            by this key. Has the form: `projects/my-project/locations/my-location/keyRings/my-kr/cryptoKeys/my-key`.
+            The key needs to be in the same region as where the compute resource is
+            created.  If set, this Endpoint and all sub-resources of this Endpoint
+            will be secured by this key.'
+          isOptional: true
+          parameterType: STRING
+        labels:
+          defaultValue: {}
+          description: The labels with user-defined metadata to organize your Endpoints.  Label
+            keys and values can be no longer than 64 characters (Unicode codepoints),
+            can only contain lowercase letters, numeric characters, underscores and
+            dashes. International characters are allowed.  See https://goo.gl/xmQnxf
+            for more information and examples of labels.
+          isOptional: true
+          parameterType: STRUCT
+        location:
+          defaultValue: us-central1
+          description: Location to create the Endpoint. If not set, default to us-central1.
+          isOptional: true
+          parameterType: STRING
+        network:
+          defaultValue: ''
+          description: 'The full name of the Google Compute Engine network to which
+            the Endpoint should be peered. Private services access must already be
+            configured for the network. If left unspecified, the Endpoint is not peered
+            with any network. [Format](https://cloud.google.com/compute/docs/reference/rest/v1/networks/insert):
+            `projects/{project}/global/networks/{network}`. Where `{project}` is a
+            project number, as in `''12345''`, and `{network}` is network name.'
+          isOptional: true
+          parameterType: STRING
+        project:
+          defaultValue: '{{$.pipeline_google_cloud_project_id}}'
+          description: Project to create the Endpoint. Defaults to the project in
+            which the PipelineJob is run.
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        endpoint:
+          artifactType:
+            schemaTitle: google.VertexEndpoint
+            schemaVersion: 0.0.1
+          description: Artifact tracking the created Endpoint.
+      parameters:
+        gcp_resources:
+          description: Serialized JSON of `gcp_resources` [proto](https://github.com/kubeflow/pipelines/tree/master/components/google-cloud/google_cloud_pipeline_components/proto)
+            which tracks the create Endpoint's long-running operation.
+          parameterType: STRING
+  comp-importer:
+    executorLabel: exec-importer
+    inputDefinitions:
+      parameters:
+        uri:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        artifact:
+          artifactType:
+            schemaTitle: google.UnmanagedContainerModel
+            schemaVersion: 0.0.1
+  comp-model-deploy:
+    executorLabel: exec-model-deploy
+    inputDefinitions:
+      artifacts:
+        endpoint:
+          artifactType:
+            schemaTitle: google.VertexEndpoint
+            schemaVersion: 0.0.1
+          description: The Endpoint to be deployed to.
+          isOptional: true
+        model:
+          artifactType:
+            schemaTitle: google.VertexModel
+            schemaVersion: 0.0.1
+          description: The model to be deployed.
+      parameters:
+        automatic_resources_max_replica_count:
+          defaultValue: 0.0
+          description: The maximum number of replicas this DeployedModel may be deployed
+            on when the traffic against it increases. If the requested value is too
+            large, the deployment will error, but if deployment succeeds then the
+            ability to scale the model to that many replicas is guaranteed (barring
+            service outages). If traffic against the DeployedModel increases beyond
+            what its replicas at maximum may handle, a portion of the traffic will
+            be dropped. If this value is not provided, a no upper bound for scaling
+            under heavy traffic will be assume, though Vertex AI may be unable to
+            scale beyond certain replica number.
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        automatic_resources_min_replica_count:
+          defaultValue: 0.0
+          description: The minimum number of replicas this DeployedModel will be always
+            deployed on. If traffic against it increases, it may dynamically be deployed
+            onto more replicas up to `automatic_resources_max_replica_count`, and
+            as traffic decreases, some of these extra replicas may be freed. If the
+            requested value is too large, the deployment will error.  This field is
+            required if `dedicated_resources_machine_type` is not specified.
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        dedicated_resources_accelerator_count:
+          defaultValue: 0.0
+          description: The number of accelerators to attach to a worker replica.
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        dedicated_resources_accelerator_type:
+          defaultValue: ''
+          description: Hardware accelerator type. Must also set accelerator_count
+            if used. See [available options](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/MachineSpec#AcceleratorType).  This
+            field is required if `dedicated_resources_machine_type` is specified.
+          isOptional: true
+          parameterType: STRING
+        dedicated_resources_machine_type:
+          defaultValue: ''
+          description: The specification of a single machine used by the prediction.  This
+            field is required if `automatic_resources_min_replica_count` is not specified.  See
+            [more information](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.endpoints#dedicatedresources).
+          isOptional: true
+          parameterType: STRING
+        dedicated_resources_max_replica_count:
+          defaultValue: 0.0
+          description: The maximum number of replicas this deployed model may the
+            larger value of min_replica_count or 1 will be used. If value provided
+            is smaller than min_replica_count, it will automatically be increased
+            to be min_replica_count. The maximum number of replicas this deployed
+            model may be deployed on when the traffic against it increases. If requested
+            value is too large, the deployment will error, but if deployment succeeds
+            then the ability to scale the model to that many replicas is guaranteed
+            (barring service outages). If traffic against the deployed model increases
+            beyond what its replicas at maximum may handle, a portion of the traffic
+            will be dropped. If this value is not provided, will use `dedicated_resources_min_replica_count`
+            as the default value.
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        dedicated_resources_min_replica_count:
+          defaultValue: 0.0
+          description: The minimum number of machine replicas this DeployedModel will
+            be always deployed on. This value must be greater than or equal to 1.
+            If traffic against the DeployedModel increases, it may dynamically be
+            deployed onto more replicas, and as traffic decreases, some of these extra
+            replicas may be freed.
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        deployed_model_display_name:
+          defaultValue: ''
+          description: The display name of the DeployedModel. If not provided upon
+            creation, the Model's display_name is used.
+          isOptional: true
+          parameterType: STRING
+        disable_container_logging:
+          defaultValue: false
+          description: For custom-trained Models and AutoML Tabular Models, the container
+            of the DeployedModel instances will send stderr and stdout streams to
+            Stackdriver Logging by default. Please note that the logs incur cost,
+            which are subject to Cloud Logging pricing.  User can disable container
+            logging by setting this flag to true.
+          isOptional: true
+          parameterType: BOOLEAN
+        enable_access_logging:
+          defaultValue: false
+          description: These logs are like standard server access logs, containing
+            information like timestamp and latency for each prediction request.  Note
+            that Stackdriver logs may incur a cost, especially if your project receives
+            prediction requests at a high queries per second rate (QPS). Estimate
+            your costs before enabling this option.
+          isOptional: true
+          parameterType: BOOLEAN
+        explanation_metadata:
+          defaultValue: {}
+          description: Metadata describing the Model's input and output for explanation.
+            See [more information](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/ExplanationSpec#explanationmetadata).
+          isOptional: true
+          parameterType: STRUCT
+        explanation_parameters:
+          defaultValue: {}
+          description: Parameters that configure explaining information of the Model's
+            predictions. See [more information](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/ExplanationSpec#explanationmetadata).
+          isOptional: true
+          parameterType: STRUCT
+        service_account:
+          defaultValue: ''
+          description: The service account that the DeployedModel's container runs
+            as. Specify the email address of the service account. If this service
+            account is not specified, the container runs as a service account that
+            doesn't have access to the resource project.  Users deploying the Model
+            must have the `iam.serviceAccounts.actAs` permission on this service account.
+          isOptional: true
+          parameterType: STRING
+        traffic_split:
+          defaultValue: {}
+          description: A map from a DeployedModel's ID to the percentage of this Endpoint's
+            traffic that should be forwarded to that DeployedModel.  If this field
+            is non-empty, then the Endpoint's trafficSplit will be overwritten with
+            it. To refer to the ID of the just being deployed Model, a "0" should
+            be used, and the actual ID of the new DeployedModel will be filled in
+            its place by this method. The traffic percentage values must add up to
+            100.  If this field is empty, then the Endpoint's trafficSplit is not
+            updated.
+          isOptional: true
+          parameterType: STRUCT
+    outputDefinitions:
+      parameters:
+        gcp_resources:
+          description: Serialized JSON of `gcp_resources` [proto](https://github.com/kubeflow/pipelines/tree/master/components/google-cloud/google_cloud_pipeline_components/proto)
+            which tracks the deploy Model's long-running operation.
+          parameterType: STRING
+  comp-model-upload:
+    executorLabel: exec-model-upload
+    inputDefinitions:
+      artifacts:
+        parent_model:
+          artifactType:
+            schemaTitle: google.VertexModel
+            schemaVersion: 0.0.1
+          description: An artifact of a model which to upload a new version to. Only
+            specify this field when uploading a new version. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.models/upload#request-body)
+          isOptional: true
+        unmanaged_container_model:
+          artifactType:
+            schemaTitle: google.UnmanagedContainerModel
+            schemaVersion: 0.0.1
+          description: 'The unmanaged container model to be uploaded.  The Model can
+            be passed from an upstream step or imported via a KFP `dsl.importer`.
+            Example:
+
+            from kfp import dsl
+
+            from google_cloud_pipeline_components.types import artifact_types
+
+
+            importer_spec = dsl.importer( artifact_uri=''gs://managed-pipeline-gcpc-e2e-test/automl-tabular/model'',
+            artifact_class=artifact_types.UnmanagedContainerModel, metadata={ ''containerSpec'':
+            { ''imageUri'': ''us-docker.pkg.dev/vertex-ai/automl-tabular/prediction-server:prod''
+            } })'
+          isOptional: true
+      parameters:
+        description:
+          defaultValue: ''
+          description: The description of the Model. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.models#Model)
+          isOptional: true
+          parameterType: STRING
+        display_name:
+          description: The display name of the Model. The name can be up to 128 characters
+            long and can be consist of any UTF-8 characters. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.models#Model)
+          parameterType: STRING
+        encryption_spec_key_name:
+          defaultValue: ''
+          description: 'Customer-managed encryption key spec for a Model. If set,
+            this Model and all sub-resources of this Model will be secured by this
+            key.  Has the form: `projects/my-project/locations/my-location/keyRings/my-kr/cryptoKeys/my-key`.
+            The key needs to be in the same region as where the compute resource is
+            created.'
+          isOptional: true
+          parameterType: STRING
+        explanation_metadata:
+          defaultValue: {}
+          description: Metadata describing the Model's input and output for explanation.
+            Both `explanation_metadata` and `explanation_parameters` must be passed
+            together when used. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/ExplanationSpec#explanationmetadata)
+          isOptional: true
+          parameterType: STRUCT
+        explanation_parameters:
+          defaultValue: {}
+          description: Parameters to configure explaining for Model's predictions.  [More
+            information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/ExplanationSpec#ExplanationParameters)
+          isOptional: true
+          parameterType: STRUCT
+        labels:
+          defaultValue: {}
+          description: The labels with user-defined metadata to organize your model.  Label
+            keys and values can be no longer than 64 characters (Unicode codepoints),
+            can only contain lowercase letters, numeric characters, underscores and
+            dashes. International characters are allowed.  See https://goo.gl/xmQnxf
+            for more information and examples of labels.
+          isOptional: true
+          parameterType: STRUCT
+        location:
+          defaultValue: us-central1
+          description: Optional location to upload this Model to. If not set, defaults
+            to `us-central1`.
+          isOptional: true
+          parameterType: STRING
+        project:
+          defaultValue: '{{$.pipeline_google_cloud_project_id}}'
+          description: Project to upload this Model to. Defaults to the project in
+            which the PipelineJob is run.
+          isOptional: true
+          parameterType: STRING
+        version_aliases:
+          defaultValue: []
+          description: User provided version aliases so that a model version can be
+            referenced via alias (i.e. `projects/{project}/locations/{location}/models/{modelId}@{version_alias}`
+            instead of auto-generated version id (i.e. `projects/{project}/locations/{location}/models/{modelId}@{versionId}`).
+            The format is [a-z][a-zA-Z0-9-]{0,126}[a-z0-9] to distinguish from versionId.
+            A default version alias will be created for the first version of the model,
+            and there must be exactly one default version alias for a model.
+          isOptional: true
+          parameterType: LIST
+    outputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: google.VertexModel
+            schemaVersion: 0.0.1
+          description: Artifact tracking the created Model version.
+      parameters:
+        gcp_resources:
+          description: Serialized JSON of `gcp_resources` [proto](https://github.com/kubeflow/pipelines/tree/master/components/google-cloud/google_cloud_pipeline_components/proto)
+            which tracks the upload Model's long-running operation.
+          parameterType: STRING
+  comp-predict-via-endpoint:
+    executorLabel: exec-predict-via-endpoint
+    inputDefinitions:
+      artifacts:
+        endpoint:
+          artifactType:
+            schemaTitle: google.VertexEndpoint
+            schemaVersion: 0.0.1
+      parameters:
+        access_token:
+          defaultValue: ''
+          isOptional: true
+          parameterType: STRING
+        bq_table:
+          parameterType: STRING
+        project:
+          parameterType: STRING
+        region:
+          parameterType: STRING
+  comp-train-and-upload-model:
+    executorLabel: exec-train-and-upload-model
+    inputDefinitions:
+      parameters:
+        bq_table:
+          parameterType: STRING
+        gcs_model_path:
+          parameterType: STRING
+        project:
+          parameterType: STRING
+        region:
+          parameterType: STRING
+        test_size:
+          defaultValue: 0.2
+          isOptional: true
+          parameterType: NUMBER_DOUBLE
+        train_size:
+          defaultValue: 0.8
+          isOptional: true
+          parameterType: NUMBER_DOUBLE
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+  comp-wait-gcp-resources:
+    executorLabel: exec-wait-gcp-resources
+    inputDefinitions:
+      parameters:
+        gcp_resources:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        gcp_resources:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-dataflow-python:
+      container:
+        args:
+        - --project
+        - '{{$.inputs.parameters[''project'']}}'
+        - --location
+        - '{{$.inputs.parameters[''location'']}}'
+        - --python_module_path
+        - '{{$.inputs.parameters[''python_module_path'']}}'
+        - --temp_location
+        - '{{$.inputs.parameters[''temp_location'']}}'
+        - --requirements_file_path
+        - '{{$.inputs.parameters[''requirements_file_path'']}}'
+        - --args
+        - '{{$.inputs.parameters[''args'']}}'
+        - --gcp_resources
+        - '{{$.outputs.parameters[''gcp_resources''].output_file}}'
+        command:
+        - python3
+        - -u
+        - -m
+        - google_cloud_pipeline_components.container.v1.dataflow.dataflow_launcher
+        image: gcr.io/ml-pipeline/google-cloud-pipeline-components:2.20.0
+    exec-download-and-predict:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - download_and_predict
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'google-cloud-storage'\
+          \ 'google-cloud-bigquery' 'google-cloud-bigquery-storage' 'scikit-learn==1.5.2'\
+          \ 'db-dtypes' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef download_and_predict(\n    gcs_model_path: str,\n    bq_table:\
+          \ str,\n    project: str,\n    region: str,\n):\n    import pandas as pd\n\
+          \    import pickle\n    from google.cloud import storage, bigquery\n   \
+          \ import os\n    storage_client = storage.Client(project=project)\n    bucket_name\
+          \ = gcs_model_path.replace('gs://', '').split('/')[0]\n    blob_name = gcs_model_path.replace('gs://',\
+          \ '').split('/', 1)[-1]\n    blob = storage_client.bucket(bucket_name).blob(blob_name)\n\
+          \    model_local = \"/tmp/model.pkl\"\n    blob.download_to_filename(model_local)\n\
+          \    with open(model_local, \"rb\") as file:\n        model = pickle.load(file)\n\
+          \    bq_client = bigquery.Client(project=project, location=region)\n   \
+          \ df = bq_client.query(f\"SELECT * FROM `{bq_table}` LIMIT 10\").to_dataframe()\n\
+          \    X = df[[\"trip_seconds\", \"trip_miles\", \"payment_type\", \"pickup_community_area\"\
+          , \"dropoff_community_area\"]]\n    preds = model.predict(X)\n    print('Sample\
+          \ predictions:', preds[:5])\n\n"
+        image: python:3.10
+    exec-endpoint-create:
+      container:
+        args:
+        - --type
+        - CreateEndpoint
+        - --payload
+        - '{"Concat": ["{", "\"display_name\": \"", "{{$.inputs.parameters[''display_name'']}}",
+          "\"", ", \"description\": \"", "{{$.inputs.parameters[''description'']}}",
+          "\"", ", \"labels\": ", "{{$.inputs.parameters[''labels'']}}", ", \"encryption_spec\":
+          {\"kms_key_name\":\"", "{{$.inputs.parameters[''encryption_spec_key_name'']}}",
+          "\"}", ", \"network\": \"", "{{$.inputs.parameters[''network'']}}", "\"",
+          "}"]}'
+        - --project
+        - '{{$.inputs.parameters[''project'']}}'
+        - --location
+        - '{{$.inputs.parameters[''location'']}}'
+        - --gcp_resources
+        - '{{$.outputs.parameters[''gcp_resources''].output_file}}'
+        - --executor_input
+        - '{{$}}'
+        command:
+        - python3
+        - -u
+        - -m
+        - google_cloud_pipeline_components.container.v1.endpoint.create_endpoint.launcher
+        image: gcr.io/ml-pipeline/google-cloud-pipeline-components:2.20.0
+    exec-importer:
+      importer:
+        artifactUri:
+          runtimeParameter: uri
+        metadata:
+          containerSpec:
+            imageUri: us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-5:latest
+        typeSchema:
+          schemaTitle: google.UnmanagedContainerModel
+          schemaVersion: 0.0.1
+    exec-model-deploy:
+      container:
+        args:
+        - --type
+        - DeployModel
+        - --payload
+        - '{"Concat": ["{", "\"endpoint\": \"", "{{$.inputs.artifacts[''endpoint''].metadata[''resourceName'']}}",
+          "\"", ", \"traffic_split\": ", "{{$.inputs.parameters[''traffic_split'']}}",
+          ", \"deployed_model\": {", "\"model\": \"", "{{$.inputs.artifacts[''model''].metadata[''resourceName'']}}",
+          "\"", ", \"dedicated_resources\": {", "\"machine_spec\": {", "\"machine_type\":
+          \"", "{{$.inputs.parameters[''dedicated_resources_machine_type'']}}", "\"",
+          ", \"accelerator_type\": \"", "{{$.inputs.parameters[''dedicated_resources_accelerator_type'']}}",
+          "\"", ", \"accelerator_count\": ", "{{$.inputs.parameters[''dedicated_resources_accelerator_count'']}}",
+          "}", ", \"min_replica_count\": ", "{{$.inputs.parameters[''dedicated_resources_min_replica_count'']}}",
+          ", \"max_replica_count\": ", "{{$.inputs.parameters[''dedicated_resources_max_replica_count'']}}",
+          "}", ", \"automatic_resources\": {", "\"min_replica_count\": ", "{{$.inputs.parameters[''automatic_resources_min_replica_count'']}}",
+          ", \"max_replica_count\": ", "{{$.inputs.parameters[''automatic_resources_max_replica_count'']}}",
+          "}", ", \"service_account\": \"", "{{$.inputs.parameters[''service_account'']}}",
+          "\"", ", \"disable_container_logging\": ", "{{$.inputs.parameters[''disable_container_logging'']}}",
+          ", \"enable_access_logging\": ", "{{$.inputs.parameters[''enable_access_logging'']}}",
+          ", \"explanation_spec\": {", "\"parameters\": ", "{{$.inputs.parameters[''explanation_parameters'']}}",
+          ", \"metadata\": ", "{{$.inputs.parameters[''explanation_metadata'']}}",
+          "}", "}", "}"]}'
+        - --project
+        - ''
+        - --location
+        - ''
+        - --gcp_resources
+        - '{{$.outputs.parameters[''gcp_resources''].output_file}}'
+        command:
+        - python3
+        - -u
+        - -m
+        - google_cloud_pipeline_components.container.v1.endpoint.deploy_model.launcher
+        image: gcr.io/ml-pipeline/google-cloud-pipeline-components:2.20.0
+    exec-model-upload:
+      container:
+        args:
+        - --type
+        - UploadModel
+        - --payload
+        - '{"Concat": ["{", "\"display_name\": \"", "{{$.inputs.parameters[''display_name'']}}",
+          "\"", ", \"description\": \"", "{{$.inputs.parameters[''description'']}}",
+          "\"", ", \"explanation_spec\": {", "\"parameters\": ", "{{$.inputs.parameters[''explanation_parameters'']}}",
+          ", \"metadata\": ", "{{$.inputs.parameters[''explanation_metadata'']}}",
+          "}", ", \"encryption_spec\": {\"kms_key_name\":\"", "{{$.inputs.parameters[''encryption_spec_key_name'']}}",
+          "\"}", ", \"version_aliases\": ", "{{$.inputs.parameters[''version_aliases'']}}",
+          ", \"labels\": ", "{{$.inputs.parameters[''labels'']}}", ", \"pipeline_job\":
+          \"", "projects/{{$.inputs.parameters[''project'']}}/locations/{{$.inputs.parameters[''location'']}}/pipelineJobs/{{$.pipeline_job_uuid}}",
+          "\"", "}"]}'
+        - --project
+        - '{{$.inputs.parameters[''project'']}}'
+        - --location
+        - '{{$.inputs.parameters[''location'']}}'
+        - --gcp_resources
+        - '{{$.outputs.parameters[''gcp_resources''].output_file}}'
+        - --executor_input
+        - '{{$}}'
+        - '{"IfPresent": {"InputName": "parent_model", "Then": ["--parent_model_name",
+          "{{$.inputs.artifacts[''parent_model''].metadata[''resourceName'']}}"]}}'
+        command:
+        - python3
+        - -u
+        - -m
+        - google_cloud_pipeline_components.container.v1.model.upload_model.launcher
+        image: gcr.io/ml-pipeline/google-cloud-pipeline-components:2.20.0
+    exec-predict-via-endpoint:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - predict_via_endpoint
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-bigquery'\
+          \ 'google-auth' 'requests' 'pandas' 'db-dtypes' 'google-cloud-pipeline-components'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\nfrom google_cloud_pipeline_components.types import artifact_types\n\
+          \ndef predict_via_endpoint(\n    project: str,\n    region: str,\n    endpoint:\
+          \ dsl.Input[artifact_types.VertexEndpoint],\n    bq_table: str,\n    access_token:\
+          \ str = \"\",\n):\n    import pandas as pd\n    from google.cloud import\
+          \ bigquery\n    import requests\n    import google.auth\n    import google.auth.transport.requests\n\
+          \n    # \u83B7\u53D6 access token\uFF08\u5982\u679C\u6CA1\u4F20\u5165\uFF09\
+          \n    if not access_token:\n        credentials, _ = google.auth.default(scopes=[\"\
+          https://www.googleapis.com/auth/cloud-platform\"])\n        credentials.refresh(google.auth.transport.requests.Request())\n\
+          \        access_token = credentials.token\n\n    # \u8BFB\u53D6\u6570\u636E\
+          \n    client = bigquery.Client(project=project, location=region)\n    df\
+          \ = client.query(f\"SELECT * FROM `{bq_table}` LIMIT 5\").to_dataframe()\n\
+          \    print(\"Sample input:\\n\", df.head())\n\n    # \u6784\u9020\u8BF7\u6C42\
+          \u4F53\n    instances = df[[\"trip_seconds\", \"trip_miles\", \"payment_type\"\
+          , \"pickup_community_area\", \"dropoff_community_area\"]].values.tolist()\n\
+          \    # endpoint_url = f\"https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{region}/endpoints/{endpoint}:predict\"\
+          \n    # endpoint_url = get_endpoint_uri(project, region, endpoint.uri)\n\
+          \    endpoint_url = endpoint.uri + \":predict\"\n\n    headers = {\n   \
+          \     \"Authorization\": f\"Bearer {access_token}\",\n        \"Content-Type\"\
+          : \"application/json\"\n    }\n    payload = {\"instances\": instances}\n\
+          \    print(\"\u8BF7\u6C42\u4F53:\", payload)\n    response = requests.post(endpoint_url,\
+          \ headers=headers, json=payload)\n    print(\"Vertex AI endpoint response:\"\
+          , response.text)\n    preds = []\n    if response.status_code == 200:\n\
+          \        preds = response.json().get(\"predictions\", [])\n        print(\"\
+          Predictions:\", preds)\n    else:\n        print(\"Error:\", response.text)\n\
+          \n"
+        image: python:3.10
+    exec-train-and-upload-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_and_upload_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.13.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'scikit-learn==1.5.2'\
+          \ 'google-cloud-bigquery' 'google-cloud-storage' 'db-dtypes' 'google-cloud-bigquery-storage'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_and_upload_model(\n    bq_table: str,\n    gcs_model_path:\
+          \ str,\n    project: str,\n    region: str,\n    train_size: float = 0.8,\n\
+          \    test_size: float = 0.2,\n) -> str:\n    import pandas as pd\n    from\
+          \ google.cloud import bigquery, storage\n    from sklearn.linear_model import\
+          \ LinearRegression\n    from sklearn.model_selection import train_test_split\n\
+          \    import pickle\n\n    import os\n    def upload_file_to_gcs(local_path,\
+          \ gcs_path, project):\n        bucket_name = gcs_path.replace('gs://', '').split('/')[0]\n\
+          \        prefix = '/'.join(gcs_path.replace('gs://', '').split('/')[1:])\n\
+          \        storage_client = storage.Client(project=project)\n        bucket\
+          \ = storage_client.bucket(bucket_name)\n        blob = bucket.blob(prefix)\n\
+          \        blob.upload_from_filename(local_path)\n        print(f\"Uploaded\
+          \ {local_path} to {gcs_model_path}\")\n\n    client = bigquery.Client(project=project,\
+          \ location=region)\n    df = client.query(f\"SELECT * FROM `{bq_table}`\"\
+          ).to_dataframe()\n    print(\"\u8BAD\u7EC3\u6570\u636E shape:\", df.shape)\n\
+          \    print(\"\u8BAD\u7EC3\u6570\u636E\u524D5\u884C:\\n\", df.head())\n\n\
+          \    X = df[[\"trip_seconds\", \"trip_miles\", \"payment_type\", \"pickup_community_area\"\
+          , \"dropoff_community_area\"]]\n    y = df[\"trip_total\"]\n    print(\"\
+          X columns:\", X.columns)\n    print(\"X shape:\", X.shape)\n    print(\"\
+          y shape:\", y.shape)\n    print(\"y head:\", y.head())\n\n    X_train, X_val,\
+          \ y_train, y_val = train_test_split(X, y, train_size=train_size, test_size=test_size,\
+          \ random_state=42)\n    model = LinearRegression()\n    model.fit(X_train,\
+          \ y_train)\n    print(\"\u6A21\u578B\u7CFB\u6570:\", getattr(model, 'coef_',\
+          \ None))\n    print(\"\u6A21\u578B\u622A\u8DDD:\", getattr(model, 'intercept_',\
+          \ None))\n\n    # \u9A8C\u8BC1\u96C6\u8BC4\u4F30\n    from sklearn.metrics\
+          \ import r2_score, mean_squared_error\n    y_val_pred = model.predict(X_val)\n\
+          \    val_r2 = r2_score(y_val, y_val_pred)\n    val_rmse = mean_squared_error(y_val,\
+          \ y_val_pred, squared=False)\n    print(f\"\u9A8C\u8BC1\u96C6 R2-score:\
+          \ {val_r2:.4f}, \u9A8C\u8BC1\u96C6 RMSE: {val_rmse:.4f}\")\n\n    # \u8BAD\
+          \u7EC3\u96C6\u8BC4\u4F30\n    y_train_pred = model.predict(X_train)\n  \
+          \  train_r2 = r2_score(y_train, y_train_pred)\n    train_rmse = mean_squared_error(y_train,\
+          \ y_train_pred, squared=False)\n    print(f\"\u8BAD\u7EC3\u96C6 R2-score:\
+          \ {train_r2:.4f}, \u8BAD\u7EC3\u96C6 RMSE: {train_rmse:.4f}\")\n\n    local_path\
+          \ = os.path.join(\"/tmp\", \"model.pkl\")\n    with open(local_path, \"\
+          wb\") as file:\n        pickle.dump(model, file)\n    print(\"\u672C\u5730\
+          \u6A21\u578B\u6587\u4EF6\u5927\u5C0F:\", os.path.getsize(local_path))\n\
+          \    print(\"\u51C6\u5907\u4E0A\u4F20\u7684\u672C\u5730\u6A21\u578B\u8DEF\
+          \u5F84:\", local_path)\n    print(\"\u76EE\u6807 GCS \u8DEF\u5F84:\", gcs_model_path)\n\
+          \    upload_file_to_gcs(local_path, gcs_model_path, project)\n    return\
+          \ gcs_model_path\n\n"
+        image: python:3.10
+    exec-wait-gcp-resources:
+      container:
+        args:
+        - --type
+        - Wait
+        - --project
+        - ''
+        - --location
+        - ''
+        - --payload
+        - '{{$.inputs.parameters[''gcp_resources'']}}'
+        - --gcp_resources
+        - '{{$.outputs.parameters[''gcp_resources''].output_file}}'
+        command:
+        - python3
+        - -u
+        - -m
+        - google_cloud_pipeline_components.container.v1.wait_gcp_resources.launcher
+        image: gcr.io/ml-pipeline/google-cloud-pipeline-components:2.20.0
+pipelineInfo:
+  description: "Chicago Taxi E2E pipeline: Dataflow + BigQuery + Vertex AI (sklearn)\
+    \ \u5168\u81EA\u52A8\u5316"
+  name: vertex-ai-chicago-taxi-e2e-pipeline
+root:
+  dag:
+    tasks:
+      dataflow-python:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-dataflow-python
+        inputs:
+          parameters:
+            args:
+              runtimeValue:
+                constant:
+                - --project
+                - '{{$.inputs.parameters[''pipelinechannel--project'']}}'
+                - --region
+                - '{{$.inputs.parameters[''pipelinechannel--region'']}}'
+                - --temp_location
+                - '{{$.inputs.parameters[''pipelinechannel--temp_location'']}}'
+                - --job_name
+                - taxi-dataflow-clean-20250520-071935
+                - --save_main_session
+                - --runner
+                - DataflowRunner
+                - --bq_output_table
+                - '{{$.inputs.parameters[''pipelinechannel--bq_output_table'']}}'
+            location:
+              componentInputParameter: region
+            pipelinechannel--bq_output_table:
+              componentInputParameter: bq_output_table
+            pipelinechannel--project:
+              componentInputParameter: project
+            pipelinechannel--region:
+              componentInputParameter: region
+            pipelinechannel--temp_location:
+              componentInputParameter: temp_location
+            project:
+              componentInputParameter: project
+            python_module_path:
+              componentInputParameter: dataflow_clean_remote_path
+            requirements_file_path:
+              componentInputParameter: requirements_file_path
+            temp_location:
+              componentInputParameter: temp_location
+        taskInfo:
+          name: dataflow-python
+      download-and-predict:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-download-and-predict
+        dependentTasks:
+        - model-deploy
+        inputs:
+          parameters:
+            bq_table:
+              componentInputParameter: bq_output_table
+            gcs_model_path:
+              componentInputParameter: gcs_model_path
+            project:
+              componentInputParameter: project
+            region:
+              componentInputParameter: region
+        taskInfo:
+          name: download-and-predict
+      endpoint-create:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-endpoint-create
+        inputs:
+          parameters:
+            display_name:
+              componentInputParameter: endpoint_display_name
+            location:
+              componentInputParameter: region
+            project:
+              componentInputParameter: project
+        taskInfo:
+          name: endpoint-create
+      importer:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-importer
+        dependentTasks:
+        - train-and-upload-model
+        inputs:
+          parameters:
+            uri:
+              componentInputParameter: gcs_model_dir
+        taskInfo:
+          name: importer
+      model-deploy:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-model-deploy
+        dependentTasks:
+        - endpoint-create
+        - model-upload
+        inputs:
+          artifacts:
+            endpoint:
+              taskOutputArtifact:
+                outputArtifactKey: endpoint
+                producerTask: endpoint-create
+            model:
+              taskOutputArtifact:
+                outputArtifactKey: model
+                producerTask: model-upload
+          parameters:
+            dedicated_resources_machine_type:
+              componentInputParameter: machine_type
+            dedicated_resources_max_replica_count:
+              componentInputParameter: max_replica_count
+            dedicated_resources_min_replica_count:
+              componentInputParameter: min_replica_count
+            deployed_model_display_name:
+              componentInputParameter: model_display_name
+            traffic_split:
+              runtimeValue:
+                constant:
+                  '0': 100.0
+        taskInfo:
+          name: model-deploy
+      model-upload:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-model-upload
+        dependentTasks:
+        - importer
+        inputs:
+          artifacts:
+            unmanaged_container_model:
+              taskOutputArtifact:
+                outputArtifactKey: artifact
+                producerTask: importer
+          parameters:
+            display_name:
+              componentInputParameter: model_display_name
+            location:
+              componentInputParameter: region
+            project:
+              componentInputParameter: project
+        taskInfo:
+          name: model-upload
+      predict-via-endpoint:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-predict-via-endpoint
+        dependentTasks:
+        - endpoint-create
+        - model-deploy
+        inputs:
+          artifacts:
+            endpoint:
+              taskOutputArtifact:
+                outputArtifactKey: endpoint
+                producerTask: endpoint-create
+          parameters:
+            bq_table:
+              componentInputParameter: bq_output_table
+            project:
+              componentInputParameter: project
+            region:
+              componentInputParameter: region
+        taskInfo:
+          name: predict-via-endpoint
+      train-and-upload-model:
+        cachingOptions: {}
+        componentRef:
+          name: comp-train-and-upload-model
+        dependentTasks:
+        - wait-gcp-resources
+        inputs:
+          parameters:
+            bq_table:
+              componentInputParameter: bq_output_table
+            gcs_model_path:
+              componentInputParameter: gcs_model_path
+            project:
+              componentInputParameter: project
+            region:
+              componentInputParameter: region
+        taskInfo:
+          name: train-and-upload-model
+      wait-gcp-resources:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-wait-gcp-resources
+        dependentTasks:
+        - dataflow-python
+        inputs:
+          parameters:
+            gcp_resources:
+              taskOutputParameter:
+                outputParameterKey: gcp_resources
+                producerTask: dataflow-python
+        taskInfo:
+          name: wait-gcp-resources
+  inputDefinitions:
+    parameters:
+      bq_output_table:
+        parameterType: STRING
+      dataflow_clean_local_path:
+        isOptional: true
+        parameterType: STRING
+      dataflow_clean_remote_path:
+        parameterType: STRING
+      endpoint_display_name:
+        defaultValue: chicago-taxi-endpoint
+        isOptional: true
+        parameterType: STRING
+      gcs_model_dir:
+        parameterType: STRING
+      gcs_model_path:
+        isOptional: true
+        parameterType: STRING
+      gcs_script_dir:
+        isOptional: true
+        parameterType: STRING
+      machine_type:
+        defaultValue: n1-standard-4
+        isOptional: true
+        parameterType: STRING
+      max_replica_count:
+        defaultValue: 3.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      min_replica_count:
+        defaultValue: 1.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      model_display_name:
+        defaultValue: chicago-taxi-lr-model
+        isOptional: true
+        parameterType: STRING
+      project:
+        parameterType: STRING
+      region:
+        parameterType: STRING
+      requirements_file_path:
+        parameterType: STRING
+      temp_location:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.13.0

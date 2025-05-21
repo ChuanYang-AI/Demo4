@@ -1,0 +1,14 @@
+google-cloud-aiplatform
+kfp
+google-cloud-storage
+google-cloud-bigquery
+google-cloud-pipeline-components
+scikit-learn
+joblib
+pandas==2.2.2
+# numpy==1.26.4
+#apache-beam[gcp]==2.56.0
+apache-beam[gcp]==2.65.0
+# pandas==2.0.3
+# numpy==1.26.4
+db-dtypes
